@@ -21,6 +21,21 @@ logger = logging.getLogger(__name__)
 # Forms we consider authoritative, in preference order
 _PREFERRED_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A"}
 
+# Core fields per statement type — a resolved dict must contain at least one
+# of these to be considered meaningful (not a ghost entry from EDGAR
+# cumulative reporting that only carries peripheral fields like shares_basic).
+_CORE_FIELDS: dict[str, set[str]] = {
+    "income": {"revenue", "net_income", "operating_income", "gross_profit", "ebitda", "pretax_income"},
+    "balance": {"total_assets", "total_equity", "total_stockholders_equity", "total_current_assets", "total_current_liabilities"},
+    "cashflow": {"operating_cash_flow", "capital_expenditure", "investing_cash_flow", "financing_cash_flow"},
+}
+
+
+def _has_core_fields(resolved: dict, statement_type: str) -> bool:
+    """Return True if *resolved* contains at least one core field for its type."""
+    core = _CORE_FIELDS.get(statement_type, set())
+    return any(resolved.get(f) is not None for f in core)
+
 
 def _parse_date(date_str: str) -> date:
     """Parse an ISO-format date string."""
@@ -182,6 +197,15 @@ def normalize_company_facts(raw_json: dict) -> list[dict]:
         for stmt_type in ("income", "balance", "cashflow"):
             resolved = resolve_xbrl_facts(deduped_facts, stmt_type)
             if not resolved:
+                continue
+
+            # Skip ghost entries that only contain peripheral fields
+            if not _has_core_fields(resolved, stmt_type):
+                logger.debug(
+                    "Skipping ghost %s statement for period %s (fp=%s): "
+                    "no core fields, only %s",
+                    stmt_type, end_str, fp, list(resolved.keys()),
+                )
                 continue
 
             statements.append({

@@ -234,6 +234,17 @@ def enrich_company(db_session: Session, company_id: int) -> dict[str, Any]:
                 result["validation_errors"] += len(validation.get("errors", []))
                 result["validation_warnings"] += len(validation.get("warnings", []))
 
+                # Skip persisting statements that fail validation (e.g. ghost
+                # entries missing required fields like revenue/net_income).
+                # This prevents junk rows from reaching the metrics layer.
+                if not validation["is_valid"]:
+                    logger.info(
+                        "Skipping invalid %s statement for %s period_end=%s: %s",
+                        stmt_type, ticker, stmt["period_end"],
+                        "; ".join(validation.get("errors", [])),
+                    )
+                    continue
+
                 record = _upsert_financial_statement(db_session, company_id, stmt, validation)
 
                 # Track whether this was an insert or update for the summary

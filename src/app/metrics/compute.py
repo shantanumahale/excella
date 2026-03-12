@@ -145,6 +145,7 @@ def _load_statements(
             FinancialStatement.company_id == company_id,
             FinancialStatement.period_end == period_end,
             FinancialStatement.fiscal_period == fiscal_period,
+            FinancialStatement.is_valid.is_(True),
         )
         .all()
     )
@@ -166,13 +167,32 @@ def _load_statements(
     return income, balance, cashflow_data
 
 
+def _has_meaningful_data(d: dict) -> bool:
+    """Check if a statement dict has core financial data, not just metadata.
+
+    Ghost entries from EDGAR cumulative reporting may contain only peripheral
+    fields like shares_basic. We require at least one core field to be present.
+    """
+    core_fields = {
+        "revenue", "net_income", "operating_income", "gross_profit", "ebitda",
+        "total_assets", "total_equity", "total_stockholders_equity",
+        "total_current_assets", "total_current_liabilities",
+        "operating_cash_flow", "capital_expenditure",
+    }
+    return any(d.get(f) is not None for f in core_fields)
+
+
 def _load_prior_statements(
     db: Session,
     company_id: int,
     period_end: date,
     fiscal_period: str,
 ) -> tuple[dict, dict, dict]:
-    """Load the most recent prior period statements (same fiscal_period, earlier date)."""
+    """Load the most recent prior period statements (same fiscal_period, earlier date).
+
+    Skips periods where the income statement has no meaningful data (ghost entries
+    from EDGAR cumulative reporting).
+    """
     stmts = (
         db.query(FinancialStatement)
         .filter(
@@ -187,25 +207,37 @@ def _load_prior_statements(
     if not stmts:
         return {}, {}, {}
 
-    # Take the latest prior period_end
-    latest_end = stmts[0].period_end
-    prior_stmts = [s for s in stmts if s.period_end == latest_end]
+    # Collect distinct period_end dates in descending order
+    seen = set()
+    period_ends = []
+    for s in stmts:
+        if s.period_end not in seen:
+            seen.add(s.period_end)
+            period_ends.append(s.period_end)
 
-    income: dict = {}
-    balance: dict = {}
-    cashflow_data: dict = {}
+    # Try each period_end until we find one with meaningful income data
+    for candidate_end in period_ends:
+        prior_stmts = [s for s in stmts if s.period_end == candidate_end]
 
-    for stmt in prior_stmts:
-        stype = getattr(stmt, "statement_type", None) or getattr(stmt, "type", None)
-        d = _stmt_to_dict(stmt)
-        if stype == "income":
-            income = d
-        elif stype == "balance":
-            balance = d
-        elif stype in ("cashflow", "cash_flow"):
-            cashflow_data = d
+        income: dict = {}
+        balance: dict = {}
+        cashflow_data: dict = {}
 
-    return income, balance, cashflow_data
+        for stmt in prior_stmts:
+            stype = getattr(stmt, "statement_type", None) or getattr(stmt, "type", None)
+            d = _stmt_to_dict(stmt)
+            if stype == "income":
+                income = d
+            elif stype == "balance":
+                balance = d
+            elif stype in ("cashflow", "cash_flow"):
+                cashflow_data = d
+
+        # Accept this period if the income statement has real data
+        if _has_meaningful_data(income):
+            return income, balance, cashflow_data
+
+    return {}, {}, {}
 
 
 def _load_latest_price(db: Session, company_id: int) -> float | None:
@@ -251,6 +283,21 @@ def compute_metrics(
     if not income_raw and not balance_raw and not cashflow_raw:
         logger.info(
             "No financial statements for company_id=%s period_end=%s fiscal_period=%s",
+            company_id, period_end, fiscal_period,
+        )
+        return None
+
+    # Guard against ghost entries: require at least one statement with core data.
+    # Without this, periods that only carry peripheral fields (e.g. shares_basic)
+    # would produce mostly-null DerivedMetrics rows.
+    if (
+        not _has_meaningful_data(income_raw)
+        and not _has_meaningful_data(balance_raw)
+        and not _has_meaningful_data(cashflow_raw)
+    ):
+        logger.info(
+            "Ghost entry detected for company_id=%s period_end=%s fiscal_period=%s "
+            "— no core financial data, skipping metrics computation",
             company_id, period_end, fiscal_period,
         )
         return None
