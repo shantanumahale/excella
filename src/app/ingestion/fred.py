@@ -234,6 +234,15 @@ class FredIngestor(BaseIngestor):
             len(results["failed"]),
             results["total_observations"],
         )
+
+        # Invalidate macro API cache so endpoints serve fresh data immediately
+        try:
+            from app.api.cache import cache_invalidate_pattern
+            cleared = cache_invalidate_pattern(self.redis, "macro:*")
+            logger.info("Cleared %d macro cache keys after FRED ingestion", cleared)
+        except Exception:
+            logger.warning("Failed to clear macro cache (non-fatal)", exc_info=True)
+
         return results
 
     def close(self) -> None:

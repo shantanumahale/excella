@@ -4,11 +4,20 @@ from __future__ import annotations
 
 import logging
 
+import redis
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.deps import DateRangeParams, PaginationParams, get_db
+from app.api.cache import (
+    MACRO_ALL_LATEST_TTL,
+    MACRO_OBSERVATIONS_TTL,
+    MACRO_SERIES_LIST_TTL,
+    MACRO_SINGLE_LATEST_TTL,
+    cache_get,
+    cache_set,
+)
+from app.api.deps import DateRangeParams, PaginationParams, get_db, get_redis
 from app.db.models import FredSeries
 from app.db.session import engine
 
@@ -17,34 +26,67 @@ router = APIRouter(prefix="/macro", tags=["macro"])
 
 
 @router.get("/series", summary="List FRED series", description="List all 23 tracked macroeconomic series (Treasury yields, CPI, GDP, unemployment, VIX, etc.).")
-def list_series(db: Session = Depends(get_db)):
+def list_series(
+    db: Session = Depends(get_db),
+    r: redis.Redis = Depends(get_redis),
+):
     """List all tracked FRED series."""
+    cache_key = "macro:series:list"
+    try:
+        cached = cache_get(r, cache_key)
+        if cached is not None:
+            return cached
+    except Exception:
+        logger.warning("Redis read failed for %s", cache_key, exc_info=True)
+
     rows = db.query(FredSeries).order_by(FredSeries.series_id).all()
-    return [
+    result = [
         {
-            "id": r.id,
-            "series_id": r.series_id,
-            "title": r.title,
-            "frequency": r.frequency,
-            "units": r.units,
-            "seasonal_adjustment": r.seasonal_adjustment,
-            "notes": r.notes,
-            "last_updated": r.last_updated,
+            "id": row.id,
+            "series_id": row.series_id,
+            "title": row.title,
+            "frequency": row.frequency,
+            "units": row.units,
+            "seasonal_adjustment": row.seasonal_adjustment,
+            "notes": row.notes,
+            "last_updated": row.last_updated,
         }
-        for r in rows
+        for row in rows
     ]
+
+    try:
+        cache_set(r, cache_key, result, MACRO_SERIES_LIST_TTL)
+    except Exception:
+        logger.warning("Redis write failed for %s", cache_key, exc_info=True)
+
+    return result
 
 
 @router.get("/series/latest", summary="Latest value for every tracked series")
-def all_latest():
+def all_latest(r: redis.Redis = Depends(get_redis)):
     """Return the most recent observation for each series in a single query."""
+    cache_key = "macro:series:all_latest"
+    try:
+        cached = cache_get(r, cache_key)
+        if cached is not None:
+            return cached
+    except Exception:
+        logger.warning("Redis read failed for %s", cache_key, exc_info=True)
+
     sql = text(
         "SELECT DISTINCT ON (series_id) series_id, time, value "
         "FROM fred_observations ORDER BY series_id, time DESC"
     )
     with engine.connect() as conn:
         rows = conn.execute(sql).mappings().all()
-    return {r["series_id"]: {"time": r["time"], "value": r["value"]} for r in rows}
+    result = {r_["series_id"]: {"time": r_["time"], "value": r_["value"]} for r_ in rows}
+
+    try:
+        cache_set(r, cache_key, result, MACRO_ALL_LATEST_TTL)
+    except Exception:
+        logger.warning("Redis write failed for %s", cache_key, exc_info=True)
+
+    return result
 
 
 @router.get("/series/{series_id}")
@@ -52,8 +94,20 @@ def get_observations(
     series_id: str,
     pagination: PaginationParams = Depends(),
     dates: DateRangeParams = Depends(),
+    r: redis.Redis = Depends(get_redis),
 ):
     """Return observations for a FRED series."""
+    cache_key = (
+        f"macro:obs:{series_id.upper()}:{pagination.offset}:{pagination.limit}"
+        f":{dates.start}:{dates.end}"
+    )
+    try:
+        cached = cache_get(r, cache_key)
+        if cached is not None:
+            return cached
+    except Exception:
+        logger.warning("Redis read failed for %s", cache_key, exc_info=True)
+
     conditions = ["series_id = :series_id"]
     params: dict = {
         "series_id": series_id.upper(),
@@ -83,18 +137,36 @@ def get_observations(
     if total == 0:
         raise HTTPException(status_code=404, detail="Series not found or has no observations")
 
-    return {
+    result = {
         "series_id": series_id.upper(),
         "total": total,
         "offset": pagination.offset,
         "limit": pagination.limit,
-        "data": [dict(r) for r in rows],
+        "data": [dict(row) for row in rows],
     }
+
+    try:
+        cache_set(r, cache_key, result, MACRO_OBSERVATIONS_TTL)
+    except Exception:
+        logger.warning("Redis write failed for %s", cache_key, exc_info=True)
+
+    return result
 
 
 @router.get("/series/{series_id}/latest")
-def latest_observation(series_id: str):
+def latest_observation(
+    series_id: str,
+    r: redis.Redis = Depends(get_redis),
+):
     """Most recent observation for a FRED series."""
+    cache_key = f"macro:latest:{series_id.upper()}"
+    try:
+        cached = cache_get(r, cache_key)
+        if cached is not None:
+            return cached
+    except Exception:
+        logger.warning("Redis read failed for %s", cache_key, exc_info=True)
+
     sql = text(
         "SELECT time, value FROM fred_observations "
         "WHERE series_id = :series_id ORDER BY time DESC LIMIT 1"
@@ -105,4 +177,11 @@ def latest_observation(series_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="No observations found")
 
-    return {"series_id": series_id.upper(), **dict(row)}
+    result = {"series_id": series_id.upper(), **dict(row)}
+
+    try:
+        cache_set(r, cache_key, result, MACRO_SINGLE_LATEST_TTL)
+    except Exception:
+        logger.warning("Redis write failed for %s", cache_key, exc_info=True)
+
+    return result

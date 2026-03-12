@@ -124,6 +124,6 @@ def compute(income: dict, balance: dict, cashflow: dict) -> dict:
         "capex_to_operating_cash_flow": capex_to_ocf,
         "cash_return_on_invested_capital": cash_roic,
         "reinvestment_rate": reinvestment_rate,
-        "capex_to_depreciation": capex_to_depreciation,
-        "nopat": nopat,
+        "capex_to_depreciation_cf": capex_to_depreciation,
+        "nopat_cf": nopat,
     }

@@ -93,7 +93,12 @@ class FinancialStatement(Base):
     statement_type: Mapped[str] = mapped_column(String(20), nullable=False)  # income / balance / cashflow
     data: Mapped[dict] = mapped_column(JSONB, nullable=False)
     source: Mapped[str] = mapped_column(String(20), default="edgar")  # edgar / manual
+    period_type: Mapped[str] = mapped_column(String(10), default="annual")  # annual / quarterly
+    is_valid: Mapped[bool] = mapped_column(Boolean, default=True)
+    validation_warnings: Mapped[list | None] = mapped_column(JSONB, default=list)
+    validation_errors: Mapped[list | None] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, onupdate=datetime.utcnow)
 
     company: Mapped["Company"] = relationship(back_populates="financial_statements")
     filing: Mapped["Filing | None"] = relationship(back_populates="financial_statements")

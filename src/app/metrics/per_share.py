@@ -76,16 +76,16 @@ def compute(income: dict, balance: dict, cashflow: dict) -> dict:
     cash_per_share = _safe_div(cash_and_equivalents, shares)
 
     return {
-        "revenue_per_share": revenue_per_share,
+        "revenue_per_share_ps": revenue_per_share,
         "gross_profit_per_share": gross_profit_per_share,
         "operating_income_per_share": operating_income_per_share,
         "ebitda_per_share": ebitda_per_share,
         "net_income_per_share": net_income_per_share,
-        "book_value_per_share": book_value_per_share,
-        "tangible_book_value_per_share": tangible_book_value_per_share,
+        "book_value_per_share_ps": book_value_per_share,
+        "tangible_book_value_per_share_ps": tangible_book_value_per_share,
         "operating_cash_flow_per_share": operating_cash_flow_per_share,
         "free_cash_flow_per_share": free_cash_flow_per_share,
-        "dividends_per_share": dividends_per_share,
+        "dividends_per_share_ps": dividends_per_share,
         "total_debt_per_share": total_debt_per_share,
         "net_debt_per_share": net_debt_per_share,
         "cash_per_share": cash_per_share,

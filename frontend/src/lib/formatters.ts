@@ -32,14 +32,26 @@ export function formatPercent(
 }
 
 /**
- * Format a number as USD currency with commas.
+ * Format a number as USD currency.
+ * Uses abbreviated suffixes (K/M/B/T) for values >= 1M to prevent overflow.
  */
 export function formatCurrency(
   value: number | null | undefined,
   decimals: number = 0,
 ): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  return `$${value.toLocaleString("en-US", {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1_000_000_000_000) {
+    return `${sign}$${(abs / 1_000_000_000_000).toFixed(2)}T`;
+  }
+  if (abs >= 1_000_000_000) {
+    return `${sign}$${(abs / 1_000_000_000).toFixed(2)}B`;
+  }
+  if (abs >= 1_000_000) {
+    return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+  }
+  return `${sign}$${abs.toLocaleString("en-US", {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })}`;
@@ -96,6 +108,7 @@ export function formatDate(dateStr: string | null | undefined): string {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 

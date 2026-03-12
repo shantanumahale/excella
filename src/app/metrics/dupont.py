@@ -42,10 +42,10 @@ def compute(income: dict, balance: dict) -> dict:
         roe_5factor = tax_burden * interest_burden * operating_profit_margin * asset_turnover * equity_multiplier
 
     return {
-        # 3-factor components
-        "net_margin": net_margin,
-        "asset_turnover": asset_turnover,
-        "equity_multiplier": equity_multiplier,
+        # 3-factor components (suffixed to avoid collision with profitability/efficiency keys)
+        "net_margin_dupont": net_margin,
+        "asset_turnover_dupont": asset_turnover,
+        "equity_multiplier_dupont": equity_multiplier,
         "roe_3factor": roe_3factor,
         # 5-factor components
         "tax_burden": tax_burden,

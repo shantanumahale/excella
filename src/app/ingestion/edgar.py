@@ -334,9 +334,12 @@ class EdgarIngestor(BaseIngestor):
 
         company = self.db.query(Company).filter(Company.cik == cik).first()
         if company is None:
+            company = self.db.query(Company).filter(Company.ticker == ticker).first()
+        if company is None:
             company = Company(cik=cik)
             self.db.add(company)
 
+        company.cik = cik
         company.name = name
         company.ticker = ticker
         company.sic_code = sic

@@ -53,18 +53,18 @@ function MacroDetail({ seriesId, seriesMeta, onClose }: MacroDetailProps) {
     // Downsample to ~500 points max for performance (Recharts is DOM-based)
     const MAX_POINTS = 500;
     if (sorted.length <= MAX_POINTS) {
-      return sorted.map((obs) => ({ date: obs.time, value: obs.value }));
+      return sorted.map((obs) => ({ date: obs.time.slice(0, 10), value: obs.value }));
     }
     const step = sorted.length / MAX_POINTS;
     const sampled: { date: string; value: number | null }[] = [];
     for (let i = 0; i < MAX_POINTS; i++) {
       const obs = sorted[Math.round(i * step)];
-      sampled.push({ date: obs.time, value: obs.value });
+      sampled.push({ date: obs.time.slice(0, 10), value: obs.value });
     }
     // Always include the last point
     const last = sorted[sorted.length - 1];
-    if (sampled[sampled.length - 1].date !== last.time) {
-      sampled.push({ date: last.time, value: last.value });
+    if (sampled[sampled.length - 1].date !== last.time.slice(0, 10)) {
+      sampled.push({ date: last.time.slice(0, 10), value: last.value });
     }
     return sampled;
   }, [observations]);

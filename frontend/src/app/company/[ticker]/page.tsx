@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { useCompany } from "@/hooks/use-company";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KeyMetricsGrid } from "@/components/company/key-metrics-grid";
@@ -13,7 +13,6 @@ import { METRIC_CATEGORIES } from "@/lib/constants";
 import { getMetricsByCategory } from "@/lib/metric-metadata";
 import { formatMetricValue } from "@/lib/formatters";
 import type { DerivedMetrics } from "@/lib/types";
-import { useState } from "react";
 import {
   Building2,
   Globe,
@@ -21,10 +20,8 @@ import {
   Calendar,
   Hash,
   ExternalLink,
-  ChevronDown,
-  ChevronRight,
+  Info,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 function InfoItem({
   icon: Icon,
@@ -57,52 +54,40 @@ function CategoryMetricsCard({
   categoryLabel: string;
   metrics: DerivedMetrics;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const metricsMeta = getMetricsByCategory(categoryId);
   const categoryData = metrics[categoryId as keyof DerivedMetrics];
 
   if (!categoryData) return null;
 
-  // Check if there's any non-null data in this category
   const hasData = Object.values(categoryData).some((v) => v !== null);
   if (!hasData) return null;
 
   return (
     <Card>
-      <button
-        className="w-full text-left"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <CardHeader className="flex flex-row items-center justify-between py-4">
-          <CardTitle className="text-sm">{categoryLabel}</CardTitle>
-          {expanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          )}
-        </CardHeader>
-      </button>
-      {expanded && (
-        <CardContent className="pt-0">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3 lg:grid-cols-4">
-            {metricsMeta.map((meta) => {
-              const value = categoryData[meta.key] ?? null;
-              // Skip complex object values (like components/signals)
-              if (typeof value === "object" && value !== null) return null;
-              return (
-                <div key={meta.key} className="py-1.5">
-                  <p className="text-xs text-muted-foreground truncate">
-                    {meta.label}
-                  </p>
-                  <p className="text-sm font-medium tabular-nums text-foreground">
-                    {formatMetricValue(value as number | null, meta.format)}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      )}
+      <CardHeader className="py-4">
+        <CardTitle className="text-sm">{categoryLabel}</CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="divide-y divide-border">
+          {metricsMeta.map((meta) => {
+            const value = categoryData[meta.key] ?? null;
+            if (typeof value === "object" && value !== null) return null;
+            return (
+              <div key={meta.key} className="flex items-center justify-between py-2">
+                <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <Tooltip content={meta.description} side="right">
+                    <Info className="h-3.5 w-3.5 shrink-0 cursor-help" />
+                  </Tooltip>
+                  {meta.label}
+                </span>
+                <span className="text-sm font-medium tabular-nums text-foreground">
+                  {formatMetricValue(value as number | null, meta.format)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
     </Card>
   );
 }
