@@ -198,6 +198,33 @@ excella/
 | elasticsearch | 9200 | Full-text search |
 | minio | 9000 / 9001 | S3-compatible object storage (console at 9001) |
 
+## Seeding Data
+
+After starting services, seed the database with MAG 7 companies and macro data:
+
+```bash
+# Full seed (EDGAR + FRED + yFinance + metrics enrichment) — inside Docker
+docker compose exec api python seed_data.py
+
+# Run individual steps
+docker compose exec api python seed_data.py edgar fred enrich
+docker compose exec api python seed_data.py yfinance
+
+# If yFinance fails from Docker (Yahoo blocks container IPs),
+# run the yFinance step from your host machine instead:
+cd src && python seed_data.py yfinance
+
+# Or use the standalone host-side yFinance seeder (no app dependencies):
+pip install yfinance psycopg2-binary pandas
+python scripts/seed_yfinance_host.py
+```
+
+**What gets seeded:**
+- **EDGAR:** MAG 7 company facts + filings (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA)
+- **FRED:** 23 macro series (Treasury yields, CPI, GDP, unemployment, VIX, etc.)
+- **yFinance:** Daily OHLCV price history for all 7 tickers
+- **Enrichment:** Computes all 142 derived metrics from the ingested financial data
+
 ## Development
 
 ```bash
