@@ -1,12 +1,12 @@
 # Excella Financial Data Platform — Architecture Documentation
 
-This document provides a comprehensive visual guide to the Excella platform architecture using Mermaid diagrams. Excella is a screener.in-style financial data platform that ingests data from SEC EDGAR, FRED, and yFinance, processes it through a normalization and enrichment pipeline, and exposes it via a FastAPI REST API with dynamic screener capabilities.
+This document provides a comprehensive visual guide to the Excella platform architecture using Mermaid diagrams. Excella is a screener.in-style financial data platform that ingests data from SEC EDGAR, FRED, and yFinance, processes it through a normalization and enrichment pipeline, and exposes it via a FastAPI REST API with dynamic screener capabilities and a Next.js frontend.
 
 ---
 
 ## 1. System Architecture
 
-A high-level overview of the entire platform, showing how data flows from external sources through ingestion, storage, processing, and finally to the API layer.
+A high-level overview of the entire platform, showing how data flows from external sources through ingestion, storage, processing, and finally to the API layer and frontend.
 
 ```mermaid
 flowchart TB
@@ -17,25 +17,22 @@ flowchart TB
     end
 
     subgraph Ingestion["Ingestion Layer"]
-        CRON["CRON Scheduler"]
+        CRON["APScheduler\n(CRON Jobs)"]
         RMQ["RabbitMQ\n(Task Queues)"]
-        W1["Worker 1\n(EDGAR)"]
-        W2["Worker 2\n(FRED)"]
-        W3["Worker 3\n(yFinance)"]
+        WORKER["Worker\n(Single Process)"]
     end
 
     subgraph RawStorage["Raw Data Storage"]
-        S3["MinIO / S3\n(Raw Files)"]
-        PG["PostgreSQL\n(Metadata & Filings)"]
+        PG["PostgreSQL\n(Companies, Filings,\nStatements)"]
         TS["TimescaleDB\n(Prices & Macro)"]
     end
 
     subgraph Pipeline["Processing Pipeline"]
         XBRL["XBRL Mapper"]
-        NORM["Normalizer"]
+        NORM["Normalizer\n(+ Ghost Entry Filter)"]
         VAL["Validator"]
         ENR["Enricher"]
-        MC["Metrics Compute"]
+        MC["Metrics Compute\n(12 categories, 142 metrics)"]
     end
 
     subgraph Refined["Refined Data"]
@@ -43,17 +40,19 @@ flowchart TB
     end
 
     subgraph API["API Layer"]
-        FAPI["FastAPI REST API"]
+        FAPI["FastAPI REST API\n(Screener, Auth,\nWatchlists)"]
         REDIS["Redis\n(Cache)"]
-        ES["Elasticsearch\n(Search)"]
+    end
+
+    subgraph Frontend["Frontend"]
+        NEXT["Next.js\n(Screener UI, Company\nAnalysis, Macro Dashboard)"]
     end
 
     Sources --> CRON
     CRON --> RMQ
-    RMQ --> W1 & W2 & W3
-    W1 --> S3 & PG
-    W2 --> TS
-    W3 --> TS
+    RMQ --> WORKER
+    WORKER --> PG
+    WORKER --> TS
     RawStorage --> Pipeline
     XBRL --> NORM --> VAL --> ENR --> MC
     MC --> DM
@@ -61,7 +60,7 @@ flowchart TB
     PG --> FAPI
     TS --> FAPI
     REDIS <--> FAPI
-    ES <--> FAPI
+    FAPI --> NEXT
 
     style Sources fill:#e8f4f8,stroke:#2196F3
     style Ingestion fill:#fff3e0,stroke:#FF9800
@@ -69,6 +68,7 @@ flowchart TB
     style Pipeline fill:#fce4ec,stroke:#E91E63
     style Refined fill:#f3e5f5,stroke:#9C27B0
     style API fill:#e0f2f1,stroke:#009688
+    style Frontend fill:#e8eaf6,stroke:#3F51B5
 ```
 
 ---
@@ -80,34 +80,34 @@ A detailed left-to-right flow showing how each data source is processed independ
 ```mermaid
 flowchart LR
     subgraph EDGAR_Flow["EDGAR Flow"]
-        E1["SEC EDGAR API"] -->|"XBRL filings"| E2["EDGAR Worker"]
-        E2 -->|"raw XML/JSON"| E3["MinIO S3 Bucket"]
-        E2 -->|"filing metadata"| E4["PostgreSQL\ncompanies + filings"]
-        E3 --> E5["XBRL Mapper"]
-        E5 --> E6["Normalizer"]
+        E1["SEC EDGAR API"] -->|"XBRL company facts"| E2["Worker\n(EDGAR Handler)"]
+        E2 -->|"company + filing\nmetadata"| E4["PostgreSQL\ncompanies + filings"]
+        E4 --> E5["XBRL Mapper"]
+        E5 --> E6["Normalizer\n(+ ghost entry filter)"]
         E6 --> E7["Validator"]
         E7 --> E8["Enricher"]
     end
 
     subgraph FRED_Flow["FRED Flow"]
-        F1["FRED API"] -->|"23 macro series"| F2["FRED Worker"]
-        F2 -->|"observations"| F3["TimescaleDB\nmacro_observations"]
+        F1["FRED API"] -->|"23 macro series"| F2["Worker\n(FRED Handler)"]
+        F2 -->|"observations"| F3["TimescaleDB\nfred_observations"]
         F2 -->|"series metadata"| F4["PostgreSQL\nfred_series"]
     end
 
     subgraph YFIN_Flow["yFinance Flow"]
-        Y1["Yahoo Finance"] -->|"EOD prices"| Y2["yFinance Worker"]
-        Y2 -->|"OHLCV data"| Y3["TimescaleDB\nstock_prices"]
+        Y1["Yahoo Finance"] -->|"EOD prices"| Y2["Worker\n(yFinance Handler)"]
+        Y2 -->|"OHLCV + returns"| Y3["TimescaleDB\ndaily_prices +\ndaily_returns"]
     end
 
     subgraph Enrichment["Enrichment & Output"]
-        E8 --> M["Metrics Compute\n(12 categories)"]
-        M --> DM["DerivedMetrics\n(JSONB)"]
+        E8 --> M["Metrics Compute\n(12 categories\n142 metrics)"]
+        M --> DM["DerivedMetrics\n(12 JSONB cols)"]
         DM --> API["FastAPI"]
         F3 --> API
         F4 --> API
         Y3 --> API
         E4 --> API
+        API --> FE["Next.js\nFrontend"]
     end
 
     style EDGAR_Flow fill:#e3f2fd,stroke:#1565C0
@@ -120,96 +120,103 @@ flowchart LR
 
 ## 3. Ingestion Sequence
 
-A sequence diagram showing the interaction pattern when the CRON scheduler triggers an ingestion job. This pattern is the same for all three workers, though the external API and storage targets differ.
+A sequence diagram showing the interaction pattern when the CRON scheduler triggers an ingestion job. The single worker process routes messages to the appropriate handler based on queue name.
 
 ```mermaid
 sequenceDiagram
-    participant CRON as CRON Scheduler
+    participant CRON as APScheduler
     participant RMQ as RabbitMQ
     participant W as Worker
     participant EXT as External API
-    participant S3 as MinIO S3
     participant PG as PostgreSQL
     participant TSDB as TimescaleDB
     participant LOG as IngestionLog
 
-    CRON->>RMQ: Publish task message<br/>(source, params, timestamp)
+    CRON->>RMQ: Publish task message<br/>(action, payload, timestamp)
     RMQ->>W: Deliver task from queue
 
-    W->>LOG: Create log entry (status: STARTED)
+    W->>LOG: Create log entry (status: running)
 
     loop For each item in batch
         W->>EXT: Request data (API call)
         EXT-->>W: Return raw data
 
         alt EDGAR Filing
-            W->>S3: Store raw XBRL file
             W->>PG: Upsert company record
-            W->>PG: Insert filing metadata
+            W->>PG: Upsert filing metadata (status: raw)
         else FRED Series
             W->>PG: Upsert fred_series metadata
             W->>TSDB: Bulk insert macro observations
         else yFinance Prices
-            W->>TSDB: Bulk insert EOD price records
+            W->>TSDB: Upsert daily_prices + daily_returns
         end
     end
 
-    W->>LOG: Update log entry (status: COMPLETED,<br/>records_processed, duration)
+    W->>LOG: Update log entry (status: success,<br/>records_processed, duration)
     W->>RMQ: Acknowledge message
 
-    Note over CRON,LOG: On failure, the worker sets<br/>status: FAILED with error details<br/>and the message is requeued
+    Note over CRON,LOG: On failure, the worker sets<br/>status: error with error_message<br/>and the message is requeued
 ```
 
 ---
 
 ## 4. Pipeline Processing
 
-The data enrichment pipeline that transforms raw EDGAR filings into normalized, validated, and enriched financial metrics stored as JSONB in the DerivedMetrics table.
+The data enrichment pipeline that transforms raw EDGAR XBRL data into normalized, validated, and enriched financial metrics stored as JSONB in the DerivedMetrics table.
 
 ```mermaid
 flowchart TB
-    RAW["Raw XBRL Filing\n(from MinIO S3)"]
+    RAW["Raw XBRL Facts\n(from PostgreSQL JSONB)"]
 
     subgraph Stage1["Stage 1: XBRL Mapping"]
         XM["XBRL Mapper"]
-        XM1["Parse XBRL taxonomy tags"]
-        XM2["Map to standardized field names"]
-        XM3["Extract values + units + periods"]
+        XM1["Parse 100+ US-GAAP tags"]
+        XM2["Map to canonical field names"]
+        XM3["Filter by unit (USD only)"]
         XM --> XM1 --> XM2 --> XM3
     end
 
     subgraph Stage2["Stage 2: Normalization"]
         NM["Normalizer"]
-        NM1["Unify fiscal periods\n(Q1-Q4, FY)"]
-        NM2["Currency conversion\nto USD"]
-        NM3["Scale normalization\n(thousands → units)"]
-        NM --> NM1 --> NM2 --> NM3
+        NM1["Group facts by period\n(end_date, fiscal_year, fiscal_period)"]
+        NM2["Resolve duplicates\n(10-K preferred over 10-Q)"]
+        NM3["Fill derived fields\n(gross profit, EBITDA)"]
+        NM4["Filter ghost entries\n(core field validation)"]
+        NM --> NM1 --> NM2 --> NM3 --> NM4
     end
 
     subgraph Stage3["Stage 3: Validation"]
         VL["Validator"]
-        VL1["Balance sheet equation check\nA = L + E"]
-        VL2["Cross-statement consistency"]
-        VL3["Outlier detection\n& range checks"]
-        VL4["Flag warnings / reject invalid"]
+        VL1["Required fields check\n(revenue, total_assets, OCF)"]
+        VL2["Balance sheet identity\nA ≈ L + E (1% tolerance)"]
+        VL3["Outlier detection\n(> 1e15 flagged)"]
+        VL4["Sign validation +\ntime-series anomaly (500%+ swing)"]
         VL --> VL1 --> VL2 --> VL3 --> VL4
     end
 
     subgraph Stage4["Stage 4: Enrichment"]
         EN["Enricher"]
-        EN1["Compute derived line items\n(e.g., EBITDA, FCF, working capital)"]
-        EN2["Calculate period-over-period\ngrowth rates"]
-        EN3["Generate trailing twelve\nmonths (TTM)"]
-        EN --> EN1 --> EN2 --> EN3
+        EN1["Fill missing derived line items\n(EBITDA, working capital, D&A)"]
+        EN2["Persist FinancialStatement\nrecords with validation results"]
+        EN --> EN1 --> EN2
     end
 
     subgraph Stage5["Stage 5: Metrics Compute"]
-        MC["Metrics Compute Engine"]
-        MC1["Profitability ratios"]
-        MC2["Liquidity ratios"]
-        MC3["Leverage ratios"]
-        MC4["+ 9 more categories"]
-        MC --> MC1 & MC2 & MC3 & MC4
+        MC["Metrics Compute Engine\n(12 modules, 142 metrics)"]
+        MC1["Profitability (16)"]
+        MC2["Liquidity (11)"]
+        MC3["Leverage (10)"]
+        MC4["Efficiency (10)"]
+        MC5["Cash Flow (11)"]
+        MC6["Growth (15)"]
+        MC7["DuPont (10)"]
+        MC8["Valuation (17)"]
+        MC9["Quality (10)"]
+        MC10["Forensic (14)\nAltman Z / Piotroski F / Beneish M"]
+        MC11["Shareholder (9)"]
+        MC12["Per Share (13)"]
+        MC --> MC1 & MC2 & MC3 & MC4 & MC5 & MC6
+        MC --> MC7 & MC8 & MC9 & MC10 & MC11 & MC12
     end
 
     OUTPUT["DerivedMetrics Table\n12 JSONB category columns\nper company per period"]
@@ -233,7 +240,7 @@ An entity-relationship diagram showing the core tables, their columns, and how t
 ```mermaid
 erDiagram
     Company {
-        uuid id PK
+        int id PK
         varchar cik UK
         varchar ticker UK
         varchar name
@@ -241,41 +248,48 @@ erDiagram
         varchar sector
         varchar industry
         varchar exchange
+        varchar currency
+        float market_cap
+        int employees
         timestamp created_at
         timestamp updated_at
     }
 
     Filing {
-        uuid id PK
-        uuid company_id FK
+        int id PK
+        int company_id FK
         varchar accession_number UK
         varchar form_type
-        date period_end
-        date filed_date
-        varchar fiscal_year
-        varchar fiscal_period
+        date filing_date
+        date period_of_report
         varchar s3_key
         varchar status
         timestamp created_at
     }
 
     FinancialStatement {
-        uuid id PK
-        uuid filing_id FK
+        int id PK
+        int filing_id FK
+        int company_id FK
+        date period_start
+        date period_end
+        int fiscal_year
+        varchar fiscal_period
         varchar statement_type
-        jsonb line_items
-        varchar currency
-        bigint scale
-        boolean is_restated
+        jsonb data
+        varchar source
+        varchar period_type
+        boolean is_valid
+        jsonb validation_warnings
+        jsonb validation_errors
         timestamp created_at
     }
 
     DerivedMetrics {
-        uuid id PK
-        uuid company_id FK
-        varchar fiscal_year
-        varchar fiscal_period
+        int id PK
+        int company_id FK
         date period_end
+        varchar fiscal_period
         jsonb profitability
         jsonb liquidity
         jsonb leverage
@@ -286,33 +300,63 @@ erDiagram
         jsonb valuation
         jsonb quality
         jsonb forensic
-        jsonb shareholder_returns
+        jsonb shareholder
         jsonb per_share
-        timestamp computed_at
+        timestamp created_at
+    }
+
+    User {
+        int id PK
+        varchar email UK
+        varchar hashed_password
+        varchar name
+        boolean is_active
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    Watchlist {
+        int id PK
+        int user_id FK
+        varchar name
+        text description
+        timestamp created_at
+    }
+
+    WatchlistCompany {
+        int id PK
+        int watchlist_id FK
+        int company_id FK
+        timestamp added_at
+    }
+
+    ScreenerPreset {
+        int id PK
+        int user_id FK
+        varchar name
+        json filters
+        timestamp created_at
     }
 
     FredSeries {
-        uuid id PK
+        int id PK
         varchar series_id UK
         varchar title
         varchar frequency
         varchar units
         varchar seasonal_adjustment
-        date observation_start
-        date observation_end
-        timestamp last_synced
+        timestamp last_updated
     }
 
-    MacroObservation {
-        uuid series_id FK
-        timestamptz date PK
+    FredObservation {
+        varchar series_id FK
+        timestamptz time PK
         double value
-        varchar status
     }
 
-    StockPrice {
-        uuid company_id FK
-        timestamptz date PK
+    DailyPrice {
+        varchar ticker
+        timestamptz time PK
         double open
         double high
         double low
@@ -321,26 +365,36 @@ erDiagram
         bigint volume
     }
 
+    DailyReturn {
+        varchar ticker
+        timestamptz time PK
+        double return_1d
+    }
+
     IngestionLog {
-        uuid id PK
+        int id PK
         varchar source
-        varchar task_type
+        varchar job_type
         varchar status
         integer records_processed
-        integer records_failed
-        jsonb error_details
+        text error_message
         timestamp started_at
         timestamp completed_at
     }
 
     Company ||--o{ Filing : "has many"
+    Company ||--o{ FinancialStatement : "has many"
     Company ||--o{ DerivedMetrics : "has many"
-    Company ||--o{ StockPrice : "has prices"
+    Company ||--o{ DailyPrice : "has prices"
+    Company ||--o{ WatchlistCompany : "tracked in"
     Filing ||--o{ FinancialStatement : "contains"
-    FredSeries ||--o{ MacroObservation : "has observations"
+    FredSeries ||--o{ FredObservation : "has observations"
+    User ||--o{ Watchlist : "owns"
+    User ||--o{ ScreenerPreset : "owns"
+    Watchlist ||--o{ WatchlistCompany : "contains"
 ```
 
-> **Note:** `StockPrice` and `MacroObservation` are TimescaleDB hypertables partitioned by date for efficient time-range queries. All other tables reside in standard PostgreSQL.
+> **Note:** `DailyPrice`, `DailyReturn`, and `FredObservation` are TimescaleDB hypertables partitioned by time for efficient time-range queries. All other tables reside in standard PostgreSQL.
 
 ---
 
@@ -350,84 +404,161 @@ A mind map showing all 12 metric categories and the individual metrics computed 
 
 ```mermaid
 mindmap
-  root((DerivedMetrics\n12 Categories))
-    Profitability
+  root((DerivedMetrics\n12 Categories\n142 Metrics))
+    Profitability 16
       Gross Margin
       Operating Margin
       Net Margin
       EBITDA Margin
+      EBIT Margin
       ROA
       ROE
+      ROCE
       ROIC
-    Liquidity
+      NOPAT
+      Tax Efficiency
+      R&D Intensity
+      SGA Ratio
+      SBC Pct of Revenue
+    Liquidity 11
       Current Ratio
       Quick Ratio
       Cash Ratio
-      Working Capital Ratio
-    Leverage
+      Defensive Interval
+      NWC
+      NWC Pct Revenue
+      DIO
+      DSO
+      DPO
+      Cash Conversion Cycle
+    Leverage 10
+      Total Debt
+      Net Debt
       Debt to Equity
       Debt to Assets
+      Debt to EBITDA
+      Debt to Capital
+      Long-term D/E
       Interest Coverage
       Equity Multiplier
-      Debt to EBITDA
-    Efficiency
+      Financial Leverage
+    Efficiency 10
       Asset Turnover
+      Fixed Asset Turnover
       Inventory Turnover
       Receivables Turnover
       Payables Turnover
-      Cash Conversion Cycle
-    Cash Flow
-      Operating CF Ratio
-      FCF Yield
-      FCF to Net Income
-      CapEx to Revenue
-      Cash Flow Coverage
-    Growth
+      Equity Turnover
+      Capital Turnover
+      Operating Cycle
+      Cash Cycle
+      CapEx Ratios
+    Cash Flow 11
+      FCFF
+      FCFE
+      Simplified FCFE
+      OCF Margin
+      OCF to Net Income
+      CapEx to OCF
+      CapEx to Depreciation
+      Cash ROIC
+      Reinvestment Rate
+      Net Borrowing
+    Growth 15
       Revenue Growth
-      Earnings Growth
+      Gross Profit Growth
+      Operating Income Growth
       EBITDA Growth
+      Net Income Growth
+      EPS Growth
+      OCF Growth
       FCF Growth
-      Book Value Growth
-    DuPont Analysis
+      Asset Growth
+      Equity Growth
+      Dividend Growth
+      Sustainable Growth Rate
+      Acquisition Ratio
+      Reinvestment Rate Growth
+    DuPont Analysis 10
+      3-Factor ROE
       Net Profit Margin
       Asset Turnover
       Equity Multiplier
-      3-Factor ROE
-      5-Factor Decomposition
-    Valuation
+      5-Factor ROE
+      Tax Burden
+      Interest Burden
+      Operating Margin
+      Tax Efficiency
+      Interest Efficiency
+    Valuation 17
       P/E Ratio
       P/B Ratio
       P/S Ratio
+      P/CF Ratio
       EV/EBITDA
+      EV/EBIT
       EV/Revenue
-      PEG Ratio
-    Quality
-      Accruals Ratio
-      Earnings Persistence
-      Cash Earnings Quality
-      Revenue Quality
-    Forensic
-      Altman Z-Score
-      Piotroski F-Score
-      Beneish M-Score
-    Shareholder Returns
+      EV/FCF
+      Earnings Yield
+      FCF Yield
       Dividend Yield
-      Dividend Payout Ratio
-      Buyback Yield
-      Total Shareholder Return
-    Per Share
-      EPS
+      PEG Ratio
+      Graham Number
       Book Value per Share
+      Tangible BV per Share
       Revenue per Share
-      FCF per Share
+    Quality 10
+      Accruals Ratio
+      Sloan Ratio
+      Cash Flow to Earnings
+      Earnings Quality Score
+      Revenue vs Receivables
+      Net Income vs OCF
+      CapEx Consistency
+      Organic Revenue Flag
+      SGA Efficiency
+      Depreciation to CapEx
+    Forensic 14
+      Altman Z-Score
+      Z-Score Components
+      Distress Classification
+      Piotroski F-Score
+      F-Score 9 Signals
+      F-Score Strength
+      Beneish M-Score
+      M-Score 8 Indices
+      Manipulation Risk
+      Risk Flags
+    Shareholder 9
+      Payout Ratio
+      Dividend Payout
+      Retention Ratio
+      Buyback Ratio
+      Shareholder Yield
+      Total Capital Returned
+      Net Debt Paydown
       Dividends per Share
+      Buyback per Share
+    Per Share 13
+      Revenue per Share
+      Gross Profit per Share
+      Operating Income per Share
+      EBITDA per Share
+      Net Income per Share
+      Book Value per Share
+      Tangible BV per Share
+      OCF per Share
+      FCF per Share
+      Debt per Share
+      Net Debt per Share
+      Cash per Share
 ```
 
 ---
 
 ## 7. Docker Services
 
-All containers in the Docker Compose stack and how they connect. Arrows indicate dependency or communication direction.
+All containers in the Docker Compose stack and how they connect. The single worker process consumes from all RabbitMQ queues and routes to appropriate handlers.
 
 ```mermaid
 flowchart TB
@@ -435,36 +566,26 @@ flowchart TB
         PG["PostgreSQL + TimescaleDB\n:5432"]
         REDIS["Redis\n:6379"]
         RMQ["RabbitMQ\n:5672 / :15672 (mgmt)"]
-        ES["Elasticsearch\n:9200"]
-        MINIO["MinIO (S3)\n:9000 / :9001 (console)"]
+        ES["Elasticsearch\n:9200\n(configured, not active)"]
+        MINIO["MinIO (S3)\n:9000 / :9001 (console)\n(configured, not active)"]
     end
 
     subgraph Application["Application Services"]
         API["FastAPI\n:8000"]
-        SCHED["CRON Scheduler"]
-        W_EDGAR["Worker: EDGAR"]
-        W_FRED["Worker: FRED"]
-        W_YFIN["Worker: yFinance"]
+        SCHED["APScheduler\n(CRON Jobs)"]
+        WORKER["Worker\n(EDGAR + FRED +\nyFinance + Pipeline)"]
+        FE["Next.js Frontend\n:3000"]
     end
 
+    FE -->|"API calls"| API
     API -->|"queries"| PG
     API -->|"caching"| REDIS
-    API -->|"full-text search"| ES
 
     SCHED -->|"publishes tasks"| RMQ
 
-    RMQ -->|"edgar queue"| W_EDGAR
-    RMQ -->|"fred queue"| W_FRED
-    RMQ -->|"yfin queue"| W_YFIN
+    RMQ -->|"ingest.edgar\ningest.fred\ningest.yfinance\npipeline.enrich"| WORKER
 
-    W_EDGAR -->|"store files"| MINIO
-    W_EDGAR -->|"write metadata"| PG
-    W_FRED -->|"write series"| PG
-    W_FRED -->|"write observations"| PG
-    W_YFIN -->|"write prices"| PG
-
-    API -.->|"health checks"| RMQ
-    API -.->|"health checks"| MINIO
+    WORKER -->|"write data"| PG
 
     style Infrastructure fill:#e0f2f1,stroke:#00796B
     style Application fill:#fff3e0,stroke:#E65100
@@ -481,37 +602,53 @@ flowchart LR
     FAPI["FastAPI\n/api/v1"]
 
     subgraph Screener["/screener"]
-        S1["POST /screen\nDynamic JSONB filter query\nacross all 12 metric categories"]
-        S2["GET /filters\nAvailable filter fields & ranges"]
-        S3["GET /presets\nPre-built screening strategies"]
+        S1["POST /screener\nDynamic JSONB filter query\n142 metrics, 12 categories\nOperators: gt/gte/lt/lte/eq/between/not_null"]
+        S2["GET /screener/metrics\nMetric catalogue by category"]
     end
 
     subgraph Companies["/companies"]
-        C1["GET /\nList with pagination + search"]
-        C2["GET /{id}\nCompany detail"]
-        C3["GET /{id}/overview\nSummary with latest metrics"]
+        C1["GET /\nList with sector/industry/exchange\nfilter + search"]
+        C2["GET /{ticker}\nCompany detail with\nlatest metrics (all 12 categories)"]
     end
 
-    subgraph Financials["/financials"]
-        F1["GET /{company_id}/statements\nIncome, Balance, CashFlow"]
-        F2["GET /{company_id}/metrics\nDerivedMetrics (all 12 JSONB)"]
-        F3["GET /{company_id}/metrics/{category}\nSingle category time series"]
+    subgraph Financials["/companies/{ticker}"]
+        F1["GET /financials\nIncome, Balance, CashFlow\n(annual & quarterly)"]
+        F2["GET /metrics\nDerivedMetrics history (paginated)"]
+        F3["GET /metrics/latest\nMost recent metrics snapshot"]
+        F4["GET /filings\nSEC filings with EDGAR links"]
     end
 
-    subgraph Prices["/prices"]
-        P1["GET /{company_id}/daily\nEOD prices with date range"]
-        P2["GET /{company_id}/returns\nCalculated returns"]
+    subgraph Prices["/prices/{ticker}"]
+        P1["GET /\nDaily OHLCV with date range"]
+        P2["GET /latest\nMost recent price"]
+        P3["GET /returns\n1d/5d/21d/63d/126d/252d"]
     end
 
     subgraph Macro["/macro"]
-        M1["GET /series\nList all 23 FRED series"]
-        M2["GET /series/{id}/observations\nTime series data"]
-        M3["GET /dashboard\nKey macro indicators summary"]
+        M1["GET /series\nList 23 FRED series"]
+        M2["GET /series/latest\nLatest value for all series"]
+        M3["GET /series/{id}\nObservations with date filter"]
+        M4["GET /series/{id}/latest\nLatest observation"]
+    end
+
+    subgraph Auth["/auth"]
+        A1["POST /signup\nCreate account (bcrypt)"]
+        A2["POST /login\nGet JWT token (24h)"]
+        A3["GET /me\nCurrent user profile"]
+    end
+
+    subgraph Watchlists["/watchlists"]
+        W1["POST /\nCreate watchlist"]
+        W2["GET /\nList user's watchlists"]
+        W3["GET /{id}\nWatchlist detail"]
+        W4["DELETE /{id}\nDelete watchlist"]
+        W5["POST /{id}/companies\nAdd tickers"]
+        W6["DELETE /{id}/companies/{ticker}\nRemove ticker"]
     end
 
     subgraph System["/system"]
-        SY1["GET /health\nService health checks"]
-        SY2["GET /ingestion/status\nLatest ingestion log entries"]
+        SY1["GET /health\nHealth check"]
+        SY2["GET /ingestion/status\nLatest ingestion per source"]
     end
 
     FAPI --> Screener
@@ -519,6 +656,8 @@ flowchart LR
     FAPI --> Financials
     FAPI --> Prices
     FAPI --> Macro
+    FAPI --> Auth
+    FAPI --> Watchlists
     FAPI --> System
 
     style Screener fill:#e8eaf6,stroke:#283593
@@ -526,6 +665,8 @@ flowchart LR
     style Financials fill:#e8f5e9,stroke:#2E7D32
     style Prices fill:#fff8e1,stroke:#F9A825
     style Macro fill:#fce4ec,stroke:#C62828
+    style Auth fill:#f3e5f5,stroke:#6A1B9A
+    style Watchlists fill:#e0f7fa,stroke:#00838F
     style System fill:#f5f5f5,stroke:#616161
 ```
 
@@ -533,11 +674,11 @@ flowchart LR
 
 ## 9. Scheduler Timeline
 
-The daily CRON schedule for all automated tasks. Times are in UTC. Each job publishes messages to RabbitMQ which are then consumed by the appropriate worker.
+The daily CRON schedule for all automated tasks. Times are in US/Eastern. Each job publishes messages to RabbitMQ which are then consumed by the worker.
 
 ```mermaid
 gantt
-    title Daily Ingestion & Processing Schedule (UTC)
+    title Daily Ingestion & Processing Schedule (US/Eastern)
     dateFormat HH:mm
     axisFormat %H:%M
 
@@ -556,12 +697,51 @@ gantt
 
 **Schedule details:**
 
-| Time (UTC) | Job | Description |
-|---|---|---|
-| 06:00 | EDGAR Sync | Fetch new/amended SEC filings via EDGAR XBRL API. Stores raw files in S3, metadata in PostgreSQL. |
-| 07:00 | FRED Sync | Update all 23 macro series with latest observations. Writes to TimescaleDB hypertable. |
-| 18:00 | yFinance Sync | Pull end-of-day OHLCV prices after US market close. Writes to TimescaleDB hypertable. |
-| 20:00 | Pipeline Run | Process any new/updated filings through the full pipeline (XBRL Mapper, Normalizer, Validator, Enricher, Metrics Compute). Updates DerivedMetrics JSONB. |
+| Time (ET) | Job | Queue | Description |
+|---|---|---|---|
+| 06:00 | EDGAR Sync | `ingest.edgar` | Fetch recent SEC filings via EDGAR XBRL companyfacts API. Stores company + filing metadata in PostgreSQL. |
+| 07:00 | FRED Sync | `ingest.fred` | Update all 23 macro series with latest observations. Writes to TimescaleDB hypertable. |
+| 18:00 | yFinance Sync | `ingest.yfinance` | Pull end-of-day OHLCV prices after US market close. Writes to TimescaleDB hypertable. |
+| 20:00 | Pipeline Run | `pipeline.enrich` | Process filings through normalize → validate → enrich → compute metrics. Updates DerivedMetrics JSONB. |
+
+---
+
+## 10. Auth & User Flow
+
+Sequence diagram showing the JWT authentication flow and how protected resources (watchlists) are accessed.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant FE as Next.js Frontend
+    participant API as FastAPI
+    participant DB as PostgreSQL
+
+    U->>FE: Sign up (email, password, name)
+    FE->>API: POST /auth/signup
+    API->>DB: Insert User (bcrypt hashed password)
+    DB-->>API: User created
+    API-->>FE: 201 Created
+
+    U->>FE: Log in (email, password)
+    FE->>API: POST /auth/login
+    API->>DB: Verify credentials
+    DB-->>API: User found
+    API-->>FE: JWT token (24h expiry, HS256)
+
+    U->>FE: Create watchlist
+    FE->>API: POST /watchlists<br/>Authorization: Bearer {token}
+    API->>API: Verify JWT
+    API->>DB: Insert Watchlist
+    DB-->>API: Watchlist created
+    API-->>FE: 201 Created
+
+    U->>FE: Add ticker to watchlist
+    FE->>API: POST /watchlists/{id}/companies<br/>Authorization: Bearer {token}
+    API->>DB: Insert WatchlistCompany
+    DB-->>API: Added
+    API-->>FE: 200 OK
+```
 
 ---
 
@@ -569,7 +749,7 @@ gantt
 
 The Excella platform follows a classic ETL architecture adapted for financial data:
 
-1. **Extract** — Three specialized workers pull data from SEC EDGAR, FRED, and Yahoo Finance on a daily schedule via RabbitMQ task queues.
-2. **Transform** — A four-stage pipeline (Map, Normalize, Validate, Enrich) converts raw XBRL filings into standardized financial data, then computes 12 categories of derived metrics.
-3. **Load** — Results are stored in PostgreSQL (relational data), TimescaleDB (time-series), and MinIO/S3 (raw files), with Redis for caching and Elasticsearch for search.
-4. **Serve** — A FastAPI REST API exposes all data with a dynamic screener that filters across JSONB metric columns, enabling screener.in-style financial analysis.
+1. **Extract** — A single worker process consumes from four RabbitMQ queues to pull data from SEC EDGAR, FRED, and Yahoo Finance on a daily US/Eastern schedule.
+2. **Transform** — A five-stage pipeline (Map, Normalize, Validate, Enrich, Compute) converts raw XBRL filings into standardized financial data, filters ghost entries, validates quality, and computes 142 metrics across 12 categories.
+3. **Load** — Results are stored in PostgreSQL (relational + JSONB), TimescaleDB (time-series), with Redis for API caching.
+4. **Serve** — A FastAPI REST API exposes all data with a dynamic screener, JWT auth, watchlists, and comprehensive financial data endpoints. A Next.js frontend provides interactive screener UI, company analysis, peer comparison, macro dashboards, and user watchlists.

@@ -7,31 +7,29 @@ Everything runs in Docker. Orchestrated via Docker Compose.
 ```yaml
 services:
   # Application
-  api            # FastAPI REST server
-  worker-edgar   # SEC EDGAR ingestion worker
-  worker-fred    # FRED ingestion worker
-  worker-yfinance # yFinance ingestion worker
-  worker-pipeline # Raw → Refined pipeline worker
-  scheduler      # CRON scheduler
+  api            # FastAPI REST server (:8000)
+  worker         # Single RabbitMQ consumer — routes messages to EDGAR/FRED/yFinance/Pipeline handlers
+  scheduler      # APScheduler CRON job publisher
+  frontend       # Next.js screener UI (:3000)
 
   # Data Stores
-  postgres       # PostgreSQL + TimescaleDB
-  redis          # Cache
-  rabbitmq       # Task queue
-  elasticsearch  # Full-text search
-  minio          # S3-compatible object storage (local dev)
+  postgres       # PostgreSQL + TimescaleDB (:5432)
+  redis          # Cache (:6379)
+  rabbitmq       # Task queue (:5672, management UI :15672)
+  elasticsearch  # Full-text search (:9200) — configured, not yet integrated
+  minio          # S3-compatible object storage (:9000, console :9001) — configured, not yet active
 ```
 
 ## CRON Scheduler
 
-Runs inside a dedicated container. Publishes messages to RabbitMQ queues on schedule.
+Runs inside a dedicated container. Uses APScheduler to publish messages to RabbitMQ queues on schedule. All times are **US/Eastern**.
 
 | Job | Schedule | Queue | Description |
 |-----|----------|-------|-------------|
-| EOD Prices | Daily 18:00 ET (after market close) | `ingest.yfinance` | Pull daily OHLCV for all tracked tickers |
-| SEC Filings | Daily 06:00 ET | `ingest.edgar` | Check for new/amended filings |
-| FRED Data | Daily 07:00 ET | `ingest.fred` | Pull updated macro series |
-| Pipeline Sweep | Daily 20:00 ET | `pipeline.process` | Process any unrefined raw data |
+| SEC Filings | Daily 06:00 ET | `ingest.edgar` | Fetch recent EDGAR filings via XBRL companyfacts API |
+| FRED Data | Daily 07:00 ET | `ingest.fred` | Pull all 23 macro series observations |
+| EOD Prices | Daily 18:00 ET (after close) | `ingest.yfinance` | Pull daily OHLCV for all tracked tickers |
+| Pipeline Enrichment | Daily 20:00 ET | `pipeline.enrich` | Process filings through normalize → validate → enrich → compute metrics |
 
 ## RabbitMQ
 
@@ -41,29 +39,36 @@ Task queue for decoupling scheduling from execution.
 - `ingest.edgar` — SEC EDGAR ingestion tasks
 - `ingest.fred` — FRED ingestion tasks
 - `ingest.yfinance` — yFinance ingestion tasks
-- `pipeline.parse` — Parse & extract stage
-- `pipeline.normalize` — Normalize stage
-- `pipeline.validate` — Validate stage
-- `pipeline.enrich` — Enrich stage
-- `pipeline.dlq` — Dead letter queue for failed items
+- `pipeline.enrich` — Full enrichment pipeline (normalize + validate + compute metrics)
 
 ### Patterns
-- Workers consume from their queue and ack on success
-- Failed messages route to DLQ with retry metadata
-- Each message includes correlation ID for tracing
+- Single worker process consumes all queues, routing messages to appropriate handlers
+- Workers consume and ack on success
+- Durable queues with persistent message delivery
+- Single prefetch for ordered processing
+
+### Message Format
+```json
+{
+  "action": "ingest_bulk",
+  "payload": {"ciks": "recent"},
+  "timestamp": "2024-01-01T06:00:00"
+}
+```
 
 ## Redis
 
-In-memory cache for hot data and deduplication.
+In-memory cache for macro endpoint responses. Graceful degradation if Redis is unavailable.
 
 ### Cache Keys
-- `price:{ticker}:latest` — most recent price (TTL: 1 hour)
-- `fred:{series_id}:latest` — most recent observation (TTL: 6 hours)
-- `valuation:{company_id}:latest` — most recent valuation result (TTL: 24 hours)
-- `scenario:{portfolio_id}:{scenario_id}` — cached scenario result (TTL: 24 hours)
-- `ingest:lock:{source}:{key}` — deduplication lock (TTL: matches schedule interval)
+- `macro:series:list` — all FRED series metadata (TTL: 3600s)
+- `macro:series:all_latest` — latest value for all series (TTL: 300s)
+- `macro:obs:{series_id}:{offset}:{limit}:{start}:{end}` — series observations (TTL: 3600s)
+- `macro:latest:{series_id}` — latest observation for a specific series (TTL: 300s)
 
 ## Networking
 - All services on a shared Docker network
-- Only `api` exposed externally (port 8000)
+- `api` exposed on port 8000, `frontend` on port 3000
+- `rabbitmq` management UI on port 15672, `minio` console on port 9001
 - Databases accessible only within the Docker network
+- Health checks defined for all services; API/worker/scheduler depend on database/cache/queue readiness
