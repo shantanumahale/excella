@@ -130,7 +130,7 @@ export interface FredObservation {
 export interface ScreenerFilter {
   metric: string;
   operator: string;
-  value: number;
+  value: number | number[];
 }
 
 export interface ScreenerRequest {

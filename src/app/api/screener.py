@@ -134,14 +134,34 @@ def run_screener(body: ScreenerRequest, db: Session = Depends(get_db)):
         where_sql = "WHERE " + " AND ".join(where_clauses)
 
     # -- sorting -----------------------------------------------------------
-    order_expr = "c.ticker"
+    COMPANY_SORT_COLUMNS = {
+        "ticker": "c.ticker",
+        "name": "c.name",
+        "sector": "c.sector",
+        "industry": "c.industry",
+        "market_cap": "c.market_cap",
+    }
+
+    direction = "DESC" if body.sort_order == "desc" else "ASC"
+    order_expr = f"c.ticker {direction}"
     if body.sort_by:
         parts = body.sort_by.split(".")
         if len(parts) == 2 and parts[0] in METRIC_CATEGORIES:
+            # category.metric format — JSONB extraction
             sort_key_param = "sort_key"
             params[sort_key_param] = parts[1]
-            direction = "DESC" if body.sort_order == "desc" else "ASC"
             order_expr = f"(dm.{parts[0]} ->> :sort_key)::numeric {direction} NULLS LAST"
+        elif body.sort_by in COMPANY_SORT_COLUMNS:
+            # Direct company table column
+            col = COMPANY_SORT_COLUMNS[body.sort_by]
+            order_expr = f"{col} {direction} NULLS LAST"
+        else:
+            # Bare metric key — reverse-lookup its category
+            for cat, metrics in METRIC_CATALOGUE.items():
+                if body.sort_by in metrics:
+                    params["sort_key"] = body.sort_by
+                    order_expr = f"(dm.{cat} ->> :sort_key)::numeric {direction} NULLS LAST"
+                    break
 
     # -- count query -------------------------------------------------------
     count_sql = text(

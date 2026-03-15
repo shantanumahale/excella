@@ -33,67 +33,74 @@ yFinance ───┘     (RabbitMQ)           (S3+PG)    (normalize,    (Derive
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|-----------|
-| Frontend | Next.js 16, React 19, Tailwind CSS v4, TanStack Table/Query |
-| Backend | Python 3.12, FastAPI |
-| Database | PostgreSQL + TimescaleDB (time-series) |
-| Object Storage | S3 / MinIO |
-| Search | Elasticsearch |
-| Task Queue | RabbitMQ |
-| Cache | Redis |
-| Charts | TradingView Lightweight Charts (prices), Recharts (metrics) |
-| Auth | JWT (PyJWT + bcrypt) |
-| Scheduler | APScheduler (CRON triggers) |
-| Runtime | Docker Compose (9 services) |
+| Component      | Technology                                                  |
+| -------------- | ----------------------------------------------------------- |
+| Frontend       | Next.js 16, React 19, Tailwind CSS v4, TanStack Table/Query |
+| Backend        | Python 3.12, FastAPI                                        |
+| Database       | PostgreSQL + TimescaleDB (time-series)                      |
+| Object Storage | S3 / MinIO                                                  |
+| Search         | Elasticsearch                                               |
+| Task Queue     | RabbitMQ                                                    |
+| Cache          | Redis                                                       |
+| Charts         | TradingView Lightweight Charts (prices), Recharts (metrics) |
+| Auth           | JWT (PyJWT + bcrypt)                                        |
+| Scheduler      | APScheduler (CRON triggers)                                 |
+| Runtime        | Docker Compose (9 services)                                 |
 
 ## Frontend Pages
 
-| Page | Route | Description |
-|------|-------|-------------|
-| **Screener** | `/screener` | Dynamic filtering on 142 metrics across 12 categories, sortable/customizable columns, pagination |
-| **Company Overview** | `/company/{ticker}` | Full profile, key metrics grid, forensic scores (Altman Z, Piotroski F, Beneish M) |
-| **Financials** | `/company/{ticker}/financials` | Income statement, balance sheet, cash flow — annual & quarterly |
-| **Metrics** | `/company/{ticker}/metrics` | Historical metrics charts by category with line charts |
-| **Price** | `/company/{ticker}/price` | Candlestick OHLCV chart with volume, date range selector |
-| **Filings** | `/company/{ticker}/filings` | SEC filing documents (10-K, 10-Q, 8-K) with EDGAR links |
-| **Peer Comparison** | `/compare?tickers=AAPL,MSFT` | Side-by-side metrics comparison for up to 5 companies |
-| **Macro Dashboard** | `/macro` | 23 FRED series grouped by theme (rates, inflation, GDP, market) |
-| **Watchlist** | `/watchlist` | User watchlists with company tracking (requires auth) |
-| **Login / Signup** | `/login`, `/signup` | JWT-based authentication |
+| Page                 | Route                          | Description                                                                                      |
+| -------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| **Screener**         | `/screener`                    | Dynamic filtering on 142 metrics across 12 categories, sortable/customizable columns, pagination |
+| **Company Overview** | `/company/{ticker}`            | Full profile, key metrics grid, forensic scores (Altman Z, Piotroski F, Beneish M)               |
+| **Financials**       | `/company/{ticker}/financials` | Income statement, balance sheet, cash flow — annual & quarterly                                  |
+| **Metrics**          | `/company/{ticker}/metrics`    | Historical metrics charts by category with line charts                                           |
+| **Price**            | `/company/{ticker}/price`      | Candlestick OHLCV chart with volume, date range selector                                         |
+| **Filings**          | `/company/{ticker}/filings`    | SEC filing documents (10-K, 10-Q, 8-K) with EDGAR links                                          |
+| **Peer Comparison**  | `/compare?tickers=AAPL,MSFT`   | Side-by-side metrics comparison for up to 5 companies                                            |
+| **Macro Dashboard**  | `/macro`                       | 23 FRED series grouped by theme (rates, inflation, GDP, market)                                  |
+| **Watchlist**        | `/watchlist`                   | User watchlists with company tracking (requires auth)                                            |
+| **Login / Signup**   | `/login`, `/signup`            | JWT-based authentication                                                                         |
 
 ## API Endpoints
 
 ### Screener (core feature)
+
 - `POST /api/v1/screener` — filter companies by any combination of 100+ metrics
 - `GET /api/v1/screener/metrics` — list all available metrics by category
 
 ### Companies
+
 - `GET /api/v1/companies` — list (filter by sector, industry, search)
 - `GET /api/v1/companies/{ticker}` — detail with latest metrics
 
 ### Financial Statements
+
 - `GET /api/v1/companies/{ticker}/financials` — income, balance sheet, cashflow
 - `GET /api/v1/companies/{ticker}/metrics` — derived metrics history
 - `GET /api/v1/companies/{ticker}/metrics/latest` — most recent metrics
 - `GET /api/v1/companies/{ticker}/filings` — SEC filings list
 
 ### Prices
+
 - `GET /api/v1/prices/{ticker}` — daily OHLCV
 - `GET /api/v1/prices/{ticker}/latest` — most recent price
 - `GET /api/v1/prices/{ticker}/returns` — 1d/5d/21d/63d/126d/252d returns
 
 ### Macro
+
 - `GET /api/v1/macro/series` — list tracked FRED series
 - `GET /api/v1/macro/series/{series_id}` — observations
 - `GET /api/v1/macro/series/{series_id}/latest` — latest value
 
 ### Auth
+
 - `POST /api/v1/auth/signup` — create account
 - `POST /api/v1/auth/login` — get JWT token
 - `GET /api/v1/auth/me` — current user profile
 
 ### Watchlists
+
 - `POST /api/v1/watchlists` — create watchlist
 - `GET /api/v1/watchlists` — list user's watchlists
 - `GET /api/v1/watchlists/{id}` — watchlist detail with companies
@@ -102,6 +109,7 @@ yFinance ───┘     (RabbitMQ)           (S3+PG)    (normalize,    (Derive
 - `DELETE /api/v1/watchlists/{id}/companies/{ticker}` — remove ticker
 
 ### System
+
 - `GET /api/v1/health` — health check
 - `GET /api/v1/ingestion/status` — latest ingestion run per source
 
@@ -126,28 +134,28 @@ curl -X POST http://localhost:8000/api/v1/screener \
 
 ## Computed Metrics (12 categories, 142 metrics)
 
-| Category | Metrics |
-|----------|---------|
-| **Profitability** | Gross/operating/net/EBITDA margins, ROA, ROE, ROCE, ROIC, R&D intensity, SGA ratio, SBC % |
-| **Liquidity** | Current/quick/cash ratio, NWC, DIO, DSO, DPO, cash conversion cycle, defensive interval |
-| **Leverage** | D/E, D/A, D/EBITDA, net debt, interest coverage, equity multiplier, debt-to-capital |
-| **Efficiency** | Asset/inventory/receivables/payables/equity turnover, capex-to-revenue, capex-to-depreciation |
-| **Cash Flow** | FCFF, FCFE, OCF margin, cash-to-net-income, cash ROIC, reinvestment rate |
-| **Growth** | Revenue/profit/EPS/OCF/FCF/assets/equity YoY growth, sustainable growth rate, acquisition-adjusted |
-| **DuPont** | 3-factor and 5-factor decomposition (tax burden, interest burden, margin, turnover, leverage) |
-| **Valuation** | P/E, P/B, P/S, P/CF, EV/EBITDA, EV/EBIT, EV/Revenue, EV/FCF, PEG, Graham number, yields |
-| **Quality** | Accruals ratio, Sloan ratio, earnings quality, revenue-vs-receivables divergence, organic flag |
-| **Forensic** | Altman Z-score, Piotroski F-score (9 signals), Beneish M-score (8 indices), risk flags |
-| **Shareholder** | Payout ratio, buyback ratio, shareholder yield, net debt paydown, capital allocation |
-| **Per Share** | Revenue, book value, tangible BV, OCF, FCF, dividends, debt, cash per share |
+| Category          | Metrics                                                                                            |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| **Profitability** | Gross/operating/net/EBITDA margins, ROA, ROE, ROCE, ROIC, R&D intensity, SGA ratio, SBC %          |
+| **Liquidity**     | Current/quick/cash ratio, NWC, DIO, DSO, DPO, cash conversion cycle, defensive interval            |
+| **Leverage**      | D/E, D/A, D/EBITDA, net debt, interest coverage, equity multiplier, debt-to-capital                |
+| **Efficiency**    | Asset/inventory/receivables/payables/equity turnover, capex-to-revenue, capex-to-depreciation      |
+| **Cash Flow**     | FCFF, FCFE, OCF margin, cash-to-net-income, cash ROIC, reinvestment rate                           |
+| **Growth**        | Revenue/profit/EPS/OCF/FCF/assets/equity YoY growth, sustainable growth rate, acquisition-adjusted |
+| **DuPont**        | 3-factor and 5-factor decomposition (tax burden, interest burden, margin, turnover, leverage)      |
+| **Valuation**     | P/E, P/B, P/S, P/CF, EV/EBITDA, EV/EBIT, EV/Revenue, EV/FCF, PEG, Graham number, yields            |
+| **Quality**       | Accruals ratio, Sloan ratio, earnings quality, revenue-vs-receivables divergence, organic flag     |
+| **Forensic**      | Altman Z-score, Piotroski F-score (9 signals), Beneish M-score (8 indices), risk flags             |
+| **Shareholder**   | Payout ratio, buyback ratio, shareholder yield, net debt paydown, capital allocation               |
+| **Per Share**     | Revenue, book value, tangible BV, OCF, FCF, dividends, debt, cash per share                        |
 
 ## Data Sources
 
-| Source | Data | Schedule |
-|--------|------|----------|
-| SEC EDGAR | XBRL company facts, filings (10-K, 10-Q, 8-K) | Daily 06:00 ET |
-| FRED | 23 macro series (Treasury yields, CPI, GDP, unemployment, VIX, etc.) | Daily 07:00 ET |
-| yFinance | Daily OHLCV, dividends, splits, company info | Daily 18:00 ET (after close) |
+| Source    | Data                                                                 | Schedule                     |
+| --------- | -------------------------------------------------------------------- | ---------------------------- |
+| SEC EDGAR | XBRL company facts, filings (10-K, 10-Q, 8-K)                        | Daily 06:00 ET               |
+| FRED      | 23 macro series (Treasury yields, CPI, GDP, unemployment, VIX, etc.) | Daily 07:00 ET               |
+| yFinance  | Daily OHLCV, dividends, splits, company info                         | Daily 18:00 ET (after close) |
 
 ## Project Structure
 
@@ -186,17 +194,17 @@ excella/
 
 ## Docker Services
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| frontend | 3000 | Next.js screener UI |
-| api | 8000 | FastAPI REST (Swagger at `/docs`) |
-| worker | — | RabbitMQ consumer for ingestion + pipeline |
-| scheduler | — | CRON job publisher |
-| postgres | 5432 | PostgreSQL + TimescaleDB |
-| redis | 6379 | Cache |
-| rabbitmq | 5672 / 15672 | Task queue (management UI at 15672) |
-| elasticsearch | 9200 | Full-text search |
-| minio | 9000 / 9001 | S3-compatible object storage (console at 9001) |
+| Service       | Port         | Purpose                                        |
+| ------------- | ------------ | ---------------------------------------------- |
+| frontend      | 3000         | Next.js screener UI                            |
+| api           | 8000         | FastAPI REST (Swagger at `/docs`)              |
+| worker        | —            | RabbitMQ consumer for ingestion + pipeline     |
+| scheduler     | —            | CRON job publisher                             |
+| postgres      | 5432         | PostgreSQL + TimescaleDB                       |
+| redis         | 6379         | Cache                                          |
+| rabbitmq      | 5672 / 15672 | Task queue (management UI at 15672)            |
+| elasticsearch | 9200         | Full-text search                               |
+| minio         | 9000 / 9001  | S3-compatible object storage (console at 9001) |
 
 ## Seeding Data
 
@@ -220,6 +228,7 @@ python scripts/seed_yfinance_host.py
 ```
 
 **What gets seeded:**
+
 - **EDGAR:** MAG 7 company facts + filings (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA)
 - **FRED:** 23 macro series (Treasury yields, CPI, GDP, unemployment, VIX, etc.)
 - **yFinance:** Daily OHLCV price history for all 7 tickers
@@ -255,3 +264,8 @@ enrich_all(db)
 db.close()
 "
 ```
+
+Building on top of this:
+
+- Valuation Engine (Equity, Debt, Derivatives - Options, Futures, IR Swaps, Currency Swaps, CDS)
+- Portfolio Engine (Attribution, Backtesting, Scenario Analysis, Stress Testing)

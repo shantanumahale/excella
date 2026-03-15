@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getCompanies } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -28,9 +30,46 @@ const navLinks = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
   const [searchValue, setSearchValue] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchValue.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchValue]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setIsSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const { data: searchResults, isFetching: isSearching } = useQuery({
+    queryKey: ["navbar-search", debouncedSearch],
+    queryFn: () => getCompanies({ search: debouncedSearch, limit: 6 }),
+    enabled: debouncedSearch.length >= 1,
+    staleTime: 30_000,
+  });
+
+  const handleSearchSelect = (ticker: string) => {
+    setSearchValue("");
+    setDebouncedSearch("");
+    setIsSearchOpen(false);
+    router.push(`/company/${ticker}`);
+  };
 
   const toggleTheme = () => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
@@ -94,15 +133,65 @@ export function Navbar() {
         <div className="flex-1" />
 
         {/* Search */}
-        <div className="relative hidden w-64 sm:block lg:w-80">
+        <div ref={searchRef} className="relative hidden w-64 sm:block lg:w-80">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="text"
             placeholder="Search ticker or company..."
             value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
+            onChange={(e) => {
+              setSearchValue(e.target.value);
+              setIsSearchOpen(true);
+            }}
+            onFocus={() => {
+              if (debouncedSearch.length >= 1) setIsSearchOpen(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && searchResults?.data?.[0]) {
+                handleSearchSelect(searchResults.data[0].ticker);
+              }
+              if (e.key === "Escape") setIsSearchOpen(false);
+            }}
             className="pl-9 h-8 text-sm"
           />
+
+          {isSearchOpen && debouncedSearch.length >= 1 && (
+            <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-card shadow-lg">
+              {isSearching && (
+                <div className="px-4 py-3 text-sm text-muted-foreground">
+                  Searching...
+                </div>
+              )}
+
+              {!isSearching && (searchResults?.data ?? []).length === 0 && (
+                <div className="px-4 py-3 text-sm text-muted-foreground">
+                  No results found
+                </div>
+              )}
+
+              {!isSearching &&
+                (searchResults?.data ?? []).map((company) => (
+                  <button
+                    key={company.ticker}
+                    type="button"
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/50 first:rounded-t-lg last:rounded-b-lg"
+                    onClick={() => handleSearchSelect(company.ticker)}
+                  >
+                    <span className="font-semibold text-foreground min-w-[60px]">
+                      {company.ticker}
+                    </span>
+                    <span className="text-muted-foreground truncate">
+                      {company.name}
+                    </span>
+                    {company.sector && (
+                      <span className="ml-auto text-xs text-muted-foreground/70 shrink-0">
+                        {company.sector}
+                      </span>
+                    )}
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
 
         {/* Auth section */}

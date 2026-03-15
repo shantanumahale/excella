@@ -28,12 +28,12 @@ export function useScreener() {
       return f.value !== null;
     })
     .map((f) => {
+      const metricPath = `${f.category}.${f.metric}`;
       if (f.operator === "between") {
-        // The API expects a single value field; encode "between" as two filters
-        return { metric: f.metric, operator: f.operator, value: f.value! };
+        return { metric: metricPath, operator: f.operator, value: [f.value!, f.valueTo!] };
       }
       return {
-        metric: f.metric,
+        metric: metricPath,
         operator: f.operator,
         value: f.operator === "not_null" ? 0 : f.value!,
       };
