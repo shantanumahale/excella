@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api import auth, companies, filings, financials, macro, prices, screener, system, watchlists
+from app.api import auth, companies, filings, financials, macro, prices, screener, system, valuation, watchlists
 
 api_router = APIRouter()
 
@@ -16,4 +16,5 @@ api_router.include_router(prices.router)
 api_router.include_router(macro.router)
 api_router.include_router(screener.router)
 api_router.include_router(watchlists.router)
+api_router.include_router(valuation.router)
 api_router.include_router(system.router)

@@ -207,6 +207,15 @@ export const METRIC_METADATA: MetricMeta[] = [
   { key: "total_debt_per_share", label: "Total Debt / Share", category: "per_share", format: "currency", description: "Total Debt ÷ Shares Outstanding" },
   { key: "net_debt_per_share", label: "Net Debt / Share", category: "per_share", format: "currency", description: "Net Debt ÷ Shares Outstanding" },
   { key: "cash_per_share", label: "Cash / Share", category: "per_share", format: "currency", description: "Cash & Equivalents ÷ Shares Outstanding" },
+
+  // =========================================================================
+  // VALUATION MODELS (5) — intrinsic value estimation outputs
+  // =========================================================================
+  { key: "intrinsic_value", label: "Intrinsic Value", category: "valuation_models", format: "currency", description: "Consensus intrinsic value per share across all models" },
+  { key: "margin_of_safety", label: "Margin of Safety", category: "valuation_models", format: "percent", description: "(Intrinsic Value − Market Price) ÷ Market Price" },
+  { key: "beta", label: "Beta", category: "valuation_models", format: "ratio", description: "Equity beta vs S&P 500 (252-day regression)" },
+  { key: "wacc", label: "WACC", category: "valuation_models", format: "percent", description: "Weighted Average Cost of Capital" },
+  { key: "cost_of_equity", label: "Cost of Equity", category: "valuation_models", format: "percent", description: "CAPM: Risk-Free Rate + Beta × Equity Risk Premium" },
 ];
 
 // ---------------------------------------------------------------------------

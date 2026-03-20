@@ -2,6 +2,7 @@ import axios from "axios";
 import type {
   Company,
   CompanyListItem,
+  DCFParams,
   DerivedMetrics,
   FinancialStatement,
   FredObservation,
@@ -12,6 +13,9 @@ import type {
   PriceReturns,
   ScreenerRequest,
   ScreenerResult,
+  SensitivityResult,
+  ValuationHistoryPoint,
+  ValuationResult,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -192,6 +196,50 @@ export async function runScreener(
 
 export async function getMetricCatalogue(): Promise<MetricCatalogue> {
   const { data } = await api.get<MetricCatalogue>("/screener/metrics");
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Valuation
+// ---------------------------------------------------------------------------
+
+export async function getValuation(ticker: string): Promise<{ ticker: string; period_end: string; valuation_models: ValuationResult }> {
+  const { data } = await api.get(`/companies/${ticker}/valuation`);
+  return data;
+}
+
+export async function runCustomDCF(
+  ticker: string,
+  params: DCFParams,
+): Promise<ValuationResult> {
+  const { data } = await api.post<ValuationResult>(
+    `/companies/${ticker}/valuation/dcf`,
+    params,
+  );
+  return data;
+}
+
+export async function getValuationSensitivity(
+  ticker: string,
+): Promise<SensitivityResult> {
+  const { data } = await api.get<SensitivityResult>(
+    `/companies/${ticker}/valuation/sensitivity`,
+  );
+  return data;
+}
+
+export async function getValuationComps(ticker: string): Promise<{ ticker: string } & import("./types").CompsResult> {
+  const { data } = await api.get(`/companies/${ticker}/valuation/comps`);
+  return data;
+}
+
+export async function getValuationHistory(
+  ticker: string,
+  limit?: number,
+): Promise<{ ticker: string; history: ValuationHistoryPoint[] }> {
+  const { data } = await api.get(`/companies/${ticker}/valuation/history`, {
+    params: limit ? { limit } : undefined,
+  });
   return data;
 }
 

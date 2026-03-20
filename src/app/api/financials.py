@@ -142,4 +142,5 @@ def _metrics_row(r: DerivedMetrics) -> dict:
         "forensic": r.forensic,
         "shareholder": r.shareholder,
         "per_share": r.per_share,
+        "valuation_models": r.valuation_models,
     }

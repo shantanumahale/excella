@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { label: "Overview", href: "" },
   { label: "Financials", href: "/financials" },
   { label: "Metrics", href: "/metrics" },
+  { label: "Valuation", href: "/valuation" },
   { label: "Price", href: "/price" },
   { label: "Filings", href: "/filings" },
 ];

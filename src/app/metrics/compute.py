@@ -414,6 +414,14 @@ def compute_metrics(
         logger.exception("per_share failed for company_id=%s", company_id)
         metrics["per_share"] = {}
 
+    # Valuation models (intrinsic value estimation)
+    try:
+        from app.valuation.engine import precompute_valuation
+        metrics["valuation_models"] = precompute_valuation(db, company_id)
+    except Exception:
+        logger.exception("valuation_models failed for company_id=%s", company_id)
+        metrics["valuation_models"] = {}
+
     return metrics
 
 

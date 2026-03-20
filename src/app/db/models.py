@@ -131,6 +131,7 @@ class DerivedMetrics(Base):
     forensic: Mapped[dict | None] = mapped_column(JSONB)
     shareholder: Mapped[dict | None] = mapped_column(JSONB)
     per_share: Mapped[dict | None] = mapped_column(JSONB)
+    valuation_models: Mapped[dict | None] = mapped_column(JSONB)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

@@ -74,6 +74,8 @@ export interface DerivedMetrics {
   forensic: Record<string, number | null>;
   shareholder: Record<string, number | null>;
   per_share: Record<string, number | null>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  valuation_models: any;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +151,110 @@ export interface ScreenerResult {
   period_end: string;
   fiscal_period: string;
   metrics: Record<string, number | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Valuation Models
+// ---------------------------------------------------------------------------
+
+export interface ValuationModelSummary {
+  consensus_value: number | null;
+  margin_of_safety: number | null;
+  model_count: number;
+  model_values?: { model: string; value: number }[];
+  range_low?: number;
+  range_high?: number;
+}
+
+export interface DCFResult {
+  intrinsic_value_per_share: number;
+  enterprise_value: number;
+  equity_value: number;
+  projected_fcff: number[];
+  terminal_value: number;
+  pv_fcff: number[];
+  pv_terminal: number;
+  projection_years: number;
+  method: string;
+}
+
+export interface CompsResult {
+  peer_count: number;
+  peers: {
+    ticker: string;
+    name: string;
+    multiples: Record<string, number | null>;
+  }[];
+  multiples: Record<string, number | null>;
+  implied_values: Record<string, number | null>;
+}
+
+export interface ValuationResult {
+  ticker: string;
+  period_end?: string;
+  beta?: {
+    beta: number;
+    r_squared: number | null;
+    alpha: number | null;
+    lookback_days: number;
+    data_points: number;
+    is_fallback: boolean;
+  };
+  risk_free_rate?: number;
+  wacc?: {
+    wacc: number;
+    cost_of_equity?: number;
+    cost_of_debt_after_tax?: number;
+    equity_weight?: number;
+    debt_weight?: number;
+  };
+  models: {
+    dcf: DCFResult | null;
+    ddm: {
+      intrinsic_value_per_share: number;
+      model_type: string;
+      dividend_yield_implied: number | null;
+    } | null;
+    comps: CompsResult | null;
+    residual_income: {
+      intrinsic_value_per_share: number;
+      current_bvps: number;
+      excess_returns: number[];
+      pv_excess_returns: number[];
+      pv_terminal: number;
+      projection_years: number;
+    } | null;
+  };
+  summary: ValuationModelSummary;
+}
+
+export interface DCFParams {
+  growth_rate?: number;
+  terminal_growth: number;
+  wacc?: number;
+  projection_years: number;
+  terminal_method: "perpetuity" | "exit_multiple";
+  exit_multiple?: number;
+  risk_free_rate?: number;
+}
+
+export interface SensitivityResult {
+  ticker: string;
+  base_wacc: number;
+  wacc_range: number[];
+  growth_range: number[];
+  matrix: {
+    wacc: number;
+    values: Record<string, number | null>;
+  }[];
+}
+
+export interface ValuationHistoryPoint {
+  period_end: string;
+  intrinsic_value: number | null;
+  price: number | null;
+  margin_of_safety: number | null;
+  model_count: number | null;
 }
 
 // ---------------------------------------------------------------------------

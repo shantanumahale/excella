@@ -71,3 +71,6 @@ CREATE INDEX IF NOT EXISTS ix_corp_actions_ticker_time
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_corp_actions_ticker_time_type
     ON corporate_actions (ticker, time, action_type);
+
+-- ── Valuation models column on derived_metrics ───────────────────────────────
+ALTER TABLE derived_metrics ADD COLUMN IF NOT EXISTS valuation_models JSONB;

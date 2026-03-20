@@ -28,6 +28,12 @@ logger = logging.getLogger("seed")
 # ── MAG 7 companies ──────────────────────────────────────────────────────────
 MAG7_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
 
+# Benchmark tickers for beta computation
+BENCHMARK_TICKERS = ["SPY"]
+
+# All tickers to ingest prices for
+ALL_PRICE_TICKERS = MAG7_TICKERS + BENCHMARK_TICKERS
+
 # CIKs for EDGAR (10-digit zero-padded)
 MAG7_CIKS = {
     "AAPL":  "0000320193",
@@ -101,10 +107,10 @@ def seed_yfinance():
     time.sleep(3)
 
     # ── Batch download all price history ──
-    logger.info("> Batch downloading prices for: %s", ", ".join(MAG7_TICKERS))
+    logger.info("> Batch downloading prices for: %s", ", ".join(ALL_PRICE_TICKERS))
     try:
         data = yf.download(
-            MAG7_TICKERS,
+            ALL_PRICE_TICKERS,
             period="max",
             group_by="ticker",
             auto_adjust=False,
@@ -135,7 +141,7 @@ def seed_yfinance():
         ON CONFLICT (ticker, time) DO UPDATE SET return_1d = EXCLUDED.return_1d
     """)
 
-    for ticker in MAG7_TICKERS:
+    for ticker in ALL_PRICE_TICKERS:
         try:
             # Extract single-ticker data from multi-level columns
             if isinstance(data.columns, pd.MultiIndex):
